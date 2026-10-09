@@ -53,8 +53,8 @@ app.add_middleware(
 # Configuration Constants
 CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", "./chroma_db")
 PDF_FILE_PATH = os.getenv("PDF_FILE_PATH", "./Mirai_SoT_Policy_Handbook_2026.pdf")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "models/text-embedding-004")
-LLM_MODEL = os.getenv("LLM_MODEL", "gemini-2.5-flash")
+DEFAULT_EMBEDDING_MODEL = "models/gemini-embedding-001"
+DEFAULT_LLM_MODEL = "gemini-3.1-flash-lite"
 
 # Global instances
 vector_store: Optional[Chroma] = None
@@ -62,12 +62,13 @@ multi_query_retriever = None
 rag_chain = None
 
 def get_embeddings():
-    """Initializes Google GenAI Embeddings."""
+    """Initializes Google GenAI Embeddings with automatic model fallback."""
     api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
     if not api_key or api_key.startswith("your_"):
-        raise ValueError("Valid GOOGLE_API_KEY or GEMINI_API_KEY must be set in .env file.")
+        raise ValueError("Valid GOOGLE_API_KEY or GEMINI_API_KEY must be set in .env or Streamlit secrets.")
+    embedding_model = os.getenv("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
     return GoogleGenerativeAIEmbeddings(
-        model=EMBEDDING_MODEL,
+        model=embedding_model,
         google_api_key=api_key
     )
 
@@ -75,9 +76,10 @@ def get_llm():
     """Initializes ChatGoogleGenerativeAI with temperature=0.0 for deterministic factual responses."""
     api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
     if not api_key or api_key.startswith("your_"):
-        raise ValueError("Valid GOOGLE_API_KEY or GEMINI_API_KEY must be set in .env file.")
+        raise ValueError("Valid GOOGLE_API_KEY or GEMINI_API_KEY must be set in .env or Streamlit secrets.")
+    llm_model = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
     return ChatGoogleGenerativeAI(
-        model=LLM_MODEL,
+        model=llm_model,
         temperature=0.0,
         google_api_key=api_key
     )
