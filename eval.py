@@ -96,7 +96,8 @@ Provide your judgment in JSON format with two keys:
 "score": <integer from 1 to 5>,
 "reasoning": "<concise explanation of the score>"
 """)
-            judge_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.0, google_api_key=api_key)
+            model_name = os.getenv("LLM_MODEL", "gemini-flash-latest")
+            judge_llm = ChatGoogleGenerativeAI(model=model_name, temperature=0.0, google_api_key=api_key)
             chain = judge_prompt | judge_llm
             res = chain.invoke({
                 "question": question,
@@ -155,6 +156,16 @@ def run_evaluation(backend_url: str = "http://127.0.0.1:8000", output_csv: str =
     print("AUTONOMOUS MIRAI STUDENT POLICY ADVISOR - CERTIFICATION AUDIT")
     print("="*70)
     
+    # Pre-initialize pipeline for reliable evaluation
+    import backend
+    try:
+        if not os.path.exists(backend.CHROMA_PERSIST_DIR):
+            backend.process_pdf_and_vectorize(backend.PDF_FILE_PATH)
+        else:
+            backend.build_rag_pipeline()
+    except Exception as e:
+        print(f"Direct pipeline setup notice: {e}")
+    
     results = []
     
     for item in EVAL_DATASET:
@@ -165,27 +176,19 @@ def run_evaluation(backend_url: str = "http://127.0.0.1:8000", output_csv: str =
         context_str = ""
         
         try:
-            resp = requests.post(f"{backend_url}/chat", json={"question": item["question"]}, timeout=45)
-            if resp.status_code == 200:
-                data = resp.json()
-                answer = data.get("answer", "")
-                sources = data.get("sources", [])
-                context_str = " | ".join([s.get("content", "") for s in sources])
+            retrieved_docs = backend.multi_query_retriever.invoke(item["question"])
+            context_str = " | ".join([doc.page_content for doc in retrieved_docs])
+            raw_answer = backend.rag_chain.invoke(item["question"])
+            if isinstance(raw_answer, list):
+                answer = "".join([str(c) if isinstance(c, str) else getattr(c, "text", str(c)) for c in raw_answer])
+            elif hasattr(raw_answer, "content"):
+                answer = str(raw_answer.content)
             else:
-                answer = f"Error from backend ({resp.status_code}): {resp.text}"
+                answer = str(raw_answer)
         except Exception as e:
-            # Standalone fallback generated answer adhering strictly to policy
-            if "72%" in item["question"]:
-                answer = "Based on the Academic Evaluation Policy (Attendance Tier System), attendance between 60% – 74.99% awards 4 marks. Therefore, with 72% attendance, you will receive 4 marks out of 10."
-            elif "Ratnam" in item["question"]:
-                answer = "For the Ratnam campus, you must contact your Campus Manager, Yashaswini Ma'am (in person at the CM office or via campus email). Under the 7-Day Submission Rule, all supporting medical documents (medical certificate, doctor's prescription) must be submitted within exactly 7 days from the last day of illness or treatment."
-            elif "Cybersecurity" in item["question"]:
-                answer = "No, you should not approach Management directly. Under the Clubs and Events Policy, proposing a new club or society (such as a Cybersecurity Society under the Coding & Tech Club) requires verifiable support from at least 40% of the total batch students. The formal proposal and student signatures must be submitted to the designated Faculty Coordinator for review, who will then forward it to Management."
-            elif "smoking" in item["question"]:
-                answer = "Under the Code of Conduct Policy, possession or consumption of tobacco or smoking on campus is strictly prohibited and subject to disciplinary action by the Disciplinary Committee (such as warning, suspension, or withholding certification). The handbook does not specify any monetary fine for smoking."
-            context_str = "Mirai School of Technology Student Policy Handbook 2026."
+            answer = f"Pipeline execution error: {e}"
 
-        print(f"Generated Answer: {answer}")
+        print(f"Generated Answer: {answer.strip()}")
         
         # Evaluate with LLM-as-a-judge
         judgment = judge_answer(
@@ -203,7 +206,7 @@ def run_evaluation(backend_url: str = "http://127.0.0.1:8000", output_csv: str =
             "Category": item["category"],
             "Question": item["question"],
             "Expected_Outcome": item["expected_outcome"],
-            "Generated_Answer": answer,
+            "Generated_Answer": answer.strip(),
             "Retrieved_Context_Snippet": context_str[:250],
             "Score": judgment["score"],
             "Reasoning": judgment["reasoning"]

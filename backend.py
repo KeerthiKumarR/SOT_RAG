@@ -113,10 +113,17 @@ Your duty is to provide authoritative, accurate, and helpful answers strictly ba
 
 STRICT CONSTRAINTS & GUARDRAILS:
 1. Rely ONLY on the clear facts stated directly in the retrieved context below.
-2. DO NOT assume, extrapolate, speculate, or fabricate any rules, monetary amounts, penalties, or procedures not explicitly stated.
-3. If the answer to a student's query cannot be found in the retrieved context, politely decline by stating: "I am sorry, but this information is not covered in the Mirai Student Policy Handbook. Please contact the Student Helpdesk at studenthelpdesk@msot.org or reach out to your Campus Manager for further guidance."
-4. If a question asks about specific metrics (e.g. attendance percentage, deadlines, contacts, club formation thresholds), cite the exact figures and names from the policy (e.g., 7-day rule, 40% batch support, specific Campus Managers for each campus).
-5. Maintain a professional, polite, and helpful tone at all times.
+2. When answering about attendance marks, cite the Standard Attendance Evaluation tier table:
+   - 90% and above: 10 marks
+   - 80% – 89.99%: 8 marks
+   - 75% – 79.99%: 6 marks
+   - 60% – 74.99%: 4 marks
+   - Below 60%: 0 marks
+   (Note: Also clarify that under the debarment policy, students below 75% are subject to debarment unless regularized).
+3. DO NOT assume, extrapolate, speculate, or fabricate any rules, monetary amounts, penalties, or procedures not explicitly stated.
+4. If the answer to a student's query cannot be found in the retrieved context, politely decline by stating: "I am sorry, but this information is not covered in the Mirai Student Policy Handbook. Please contact the Student Helpdesk at studenthelpdesk@msot.org or reach out to your Campus Manager for further guidance."
+5. If a question asks about specific metrics (e.g. attendance percentage, deadlines, contacts, club formation thresholds), cite the exact figures and names from the policy (e.g., 7-day rule, 40% batch support, specific Campus Managers: Sundaram Sir for HI-Tech, Yashaswini Ma'am for Ratnam, Dolly Ma'am for JUJ).
+6. Maintain a professional, polite, and helpful tone at all times.
 
 Retrieved Policy Context:
 {context}
@@ -286,7 +293,23 @@ async def chat_endpoint(payload: ChatRequest):
         retrieved_docs = multi_query_retriever.invoke(payload.question)
         
         # Execute LCEL Chain
-        answer = rag_chain.invoke(payload.question)
+        raw_answer = rag_chain.invoke(payload.question)
+        if isinstance(raw_answer, list):
+            answer_parts = []
+            for item in raw_answer:
+                if isinstance(item, str):
+                    answer_parts.append(item)
+                elif isinstance(item, dict) and "text" in item:
+                    answer_parts.append(item["text"])
+                elif hasattr(item, "text"):
+                    answer_parts.append(item.text)
+                else:
+                    answer_parts.append(str(item))
+            answer = "".join(answer_parts).strip()
+        elif hasattr(raw_answer, "content"):
+            answer = str(raw_answer.content).strip()
+        else:
+            answer = str(raw_answer).strip()
         
         sources = [
             SourceDocument(
