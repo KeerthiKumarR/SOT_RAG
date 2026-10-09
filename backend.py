@@ -85,7 +85,7 @@ def get_llm():
     )
 
 def get_vector_store():
-    """Loads existing ChromaDB vector store or initializes a new one."""
+    """Loads existing ChromaDB vector store or automatically ingests handbook if empty."""
     global vector_store
     embeddings = get_embeddings()
     vector_store = Chroma(
@@ -93,6 +93,15 @@ def get_vector_store():
         embedding_function=embeddings,
         persist_directory=CHROMA_PERSIST_DIR
     )
+    # Auto-index handbook if collection is empty
+    try:
+        existing = vector_store.get()
+        if not existing or not existing.get("ids") or len(existing["ids"]) == 0:
+            if os.path.exists(PDF_FILE_PATH):
+                process_pdf_and_vectorize(PDF_FILE_PATH)
+    except Exception:
+        if os.path.exists(PDF_FILE_PATH):
+            process_pdf_and_vectorize(PDF_FILE_PATH)
     return vector_store
 
 def build_rag_pipeline():
