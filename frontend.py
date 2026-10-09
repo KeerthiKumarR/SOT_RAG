@@ -88,23 +88,26 @@ with st.sidebar:
     st.image("https://img.icons8.com/isometric/100/graduation-cap.png", width=64)
     st.title("Advisor Controls")
     
-    backend_url = st.text_input(
-        "Backend API URL",
-        value=os.getenv("BACKEND_URL", "http://127.0.0.1:8000"),
-        help="FastAPI server endpoint"
-    )
-    
     # Server Connection Check
+    backend_url = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
     backend_online = False
     try:
-        health_resp = requests.get(f"{backend_url}/health", timeout=2)
+        health_resp = requests.get(f"{backend_url}/health", timeout=1)
         if health_resp.status_code == 200:
             backend_online = True
-            st.success("🟢 Backend Connected")
-        else:
-            st.warning("🟡 Backend unreachable")
     except Exception:
+        backend_online = False
+    
+    if backend_online:
+        st.success("🟢 FastAPI Backend Connected")
+    elif DIRECT_RAG_AVAILABLE:
+        st.success("🟢 Cloud Policy Engine Active")
+    else:
         st.error("🔴 Backend Offline")
+        
+    with st.expander("⚙️ Connection Settings"):
+        custom_url = st.text_input("Backend API URL", value=backend_url)
+        backend_url = custom_url
     
     st.markdown("---")
     st.subheader("📄 Handbook Ingestion")
@@ -112,31 +115,41 @@ with st.sidebar:
     
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("Ingest Upload", disabled=not uploaded_pdf or not backend_online, use_container_width=True):
+        if st.button("Ingest Upload", disabled=not uploaded_pdf, use_container_width=True):
             with st.spinner("Processing & indexing PDF..."):
                 try:
-                    files = {"file": (uploaded_pdf.name, uploaded_pdf.getvalue(), "application/pdf")}
-                    res = requests.post(f"{backend_url}/ingest", files=files, timeout=60)
-                    if res.status_code == 200:
-                        data = res.json()
-                        st.success(f"Indexed {data.get('chunks_indexed', 0)} chunks!")
-                    else:
-                        st.error(f"Error: {res.text}")
+                    if backend_online:
+                        files = {"file": (uploaded_pdf.name, uploaded_pdf.getvalue(), "application/pdf")}
+                        res = requests.post(f"{backend_url}/ingest", files=files, timeout=60)
+                        if res.status_code == 200:
+                            st.success(f"Indexed {res.json().get('chunks_indexed', 0)} chunks!")
+                        else:
+                            st.error(f"Error: {res.text}")
+                    elif DIRECT_RAG_AVAILABLE:
+                        import tempfile, shutil
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                            tmp.write(uploaded_pdf.getvalue())
+                            tmp_path = tmp.name
+                        chunks_num = backend.process_pdf_and_vectorize(tmp_path)
+                        st.success(f"Directly indexed {chunks_num} chunks!")
                 except Exception as e:
-                    st.error(f"Connection failed: {str(e)}")
+                    st.error(f"Ingestion failed: {str(e)}")
     
     with col2:
-        if st.button("Index Default", disabled=not backend_online, use_container_width=True):
+        if st.button("Index Default", use_container_width=True):
             with st.spinner("Indexing default handbook..."):
                 try:
-                    res = requests.post(f"{backend_url}/ingest", timeout=60)
-                    if res.status_code == 200:
-                        data = res.json()
-                        st.success(f"Indexed {data.get('chunks_indexed', 0)} chunks!")
-                    else:
-                        st.error(f"Error: {res.text}")
+                    if backend_online:
+                        res = requests.post(f"{backend_url}/ingest", timeout=60)
+                        if res.status_code == 200:
+                            st.success(f"Indexed {res.json().get('chunks_indexed', 0)} chunks!")
+                        else:
+                            st.error(f"Error: {res.text}")
+                    elif DIRECT_RAG_AVAILABLE:
+                        chunks_num = backend.process_pdf_and_vectorize(backend.PDF_FILE_PATH)
+                        st.success(f"Directly indexed {chunks_num} chunks!")
                 except Exception as e:
-                    st.error(f"Connection failed: {str(e)}")
+                    st.error(f"Indexing failed: {str(e)}")
 
     st.markdown("---")
     st.subheader("🎯 Test Audit Queries")
