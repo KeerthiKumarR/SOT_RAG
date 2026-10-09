@@ -2,6 +2,9 @@
 
 > Production-grade Retrieval-Augmented Generation (RAG) system for the **Mirai School of Technology (MSOT)** Student Policy Handbook 2026.
 
+🌐 **Live Streamlit App**: [https://sot-rag-advisor.streamlit.app/](https://sot-rag-advisor.streamlit.app/)  
+📂 **GitHub Repository**: [https://github.com/KeerthiKumarR/SOT_RAG](https://github.com/KeerthiKumarR/SOT_RAG)
+
 ---
 
 ## 📌 Project Overview
