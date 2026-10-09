@@ -1,12 +1,18 @@
-"""
-Autonomous MirAI Student Policy Advisor - Frontend UI
-Streamlit Chat Application connecting to FastAPI RAG backend.
-"""
-
 import os
 import time
 import requests
 import streamlit as st
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Attempt importing backend RAG modules for cloud standalone execution
+DIRECT_RAG_AVAILABLE = False
+try:
+    import backend
+    DIRECT_RAG_AVAILABLE = True
+except Exception:
+    pass
 
 # Page Configuration
 st.set_page_config(
@@ -15,6 +21,12 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Initialize Streamlit Secrets if deployed on Streamlit Cloud
+if "GOOGLE_API_KEY" in st.secrets:
+    os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
+if "GEMINI_API_KEY" in st.secrets:
+    os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
 
 # Custom CSS for rich modern aesthetic
 st.markdown("""
@@ -175,46 +187,62 @@ if prompt_to_process:
         message_placeholder = st.empty()
         sources_placeholder = st.empty()
         
-        if not backend_online:
-            error_msg = "⚠️ **Backend Error**: Cannot reach the FastAPI server. Please make sure `backend.py` is running on `127.0.0.1:8000`."
-            message_placeholder.markdown(error_msg)
-            st.session_state.messages.append({"role": "assistant", "content": error_msg, "sources": []})
-        else:
-            with st.spinner("Consulting Policy Handbook with MultiQuery Retrieval..."):
-                start_time = time.time()
+        with st.spinner("Consulting Policy Handbook with MultiQuery Retrieval..."):
+            start_time = time.time()
+            answer = ""
+            sources = []
+            
+            # 1. Try FastAPI backend if online
+            if backend_online:
                 try:
                     payload = {"question": prompt_to_process}
                     response = requests.post(f"{backend_url}/chat", json=payload, timeout=45)
-                    
                     if response.status_code == 200:
                         data = response.json()
                         answer = data.get("answer", "No answer returned.")
                         sources = data.get("sources", [])
-                        elapsed = time.time() - start_time
-                        
-                        message_placeholder.markdown(answer)
-                        
-                        if sources:
-                            with sources_placeholder.expander(f"🔍 Retrieved Handbook Sources ({elapsed:.2f}s latency)"):
-                                for idx, src in enumerate(sources):
-                                    page_str = f"Page {src['page'] + 1}" if src.get("page") is not None else "Handbook Section"
-                                    st.markdown(f"**Source {idx+1} ({page_str}):**")
-                                    st.markdown(f"<div class='source-box'>{src['content']}</div>", unsafe_allow_html=True)
-                        
-                        st.session_state.messages.append({
-                            "role": "assistant",
-                            "content": answer,
-                            "sources": sources
-                        })
                     else:
-                        err_text = f"❌ Server returned error ({response.status_code}): {response.text}"
-                        message_placeholder.markdown(err_text)
-                        st.session_state.messages.append({"role": "assistant", "content": err_text, "sources": []})
-                except requests.exceptions.Timeout:
-                    timeout_msg = "⏳ **Request Timeout**: The backend took too long to respond. Please try again."
-                    message_placeholder.markdown(timeout_msg)
-                    st.session_state.messages.append({"role": "assistant", "content": timeout_msg, "sources": []})
+                        answer = f"❌ Server returned error ({response.status_code}): {response.text}"
                 except Exception as e:
-                    err_msg = f"❌ **Error connecting to advisor backend**: {str(e)}"
-                    message_placeholder.markdown(err_msg)
-                    st.session_state.messages.append({"role": "assistant", "content": err_msg, "sources": []})
+                    answer = f"❌ Error connecting to backend: {str(e)}"
+            
+            # 2. Fallback to Direct In-Process RAG (Streamlit Cloud mode)
+            elif DIRECT_RAG_AVAILABLE:
+                try:
+                    if not os.path.exists(backend.CHROMA_PERSIST_DIR):
+                        backend.process_pdf_and_vectorize(backend.PDF_FILE_PATH)
+                    else:
+                        backend.build_rag_pipeline()
+                    
+                    retrieved_docs = backend.multi_query_retriever.invoke(prompt_to_process)
+                    sources = [
+                        {"page": doc.metadata.get("page", None), "content": doc.page_content[:300] + "..." if len(doc.page_content) > 300 else doc.page_content}
+                        for doc in retrieved_docs
+                    ]
+                    raw_ans = backend.rag_chain.invoke(prompt_to_process)
+                    if isinstance(raw_ans, list):
+                        answer = "".join([str(c) if isinstance(c, str) else getattr(c, "text", str(c)) for c in raw_ans])
+                    elif hasattr(raw_ans, "content"):
+                        answer = str(raw_ans.content)
+                    else:
+                        answer = str(raw_ans)
+                except Exception as e:
+                    answer = f"❌ Error during direct RAG execution: {str(e)}"
+            else:
+                answer = "⚠️ **Backend Error**: Cannot reach FastAPI server on `127.0.0.1:8000` and direct pipeline is unavailable."
+
+            elapsed = time.time() - start_time
+            message_placeholder.markdown(answer)
+            
+            if sources:
+                with sources_placeholder.expander(f"🔍 Retrieved Handbook Sources ({elapsed:.2f}s latency)"):
+                    for idx, src in enumerate(sources):
+                        page_str = f"Page {src['page'] + 1}" if src.get("page") is not None else "Handbook Section"
+                        st.markdown(f"**Source {idx+1} ({page_str}):**")
+                        st.markdown(f"<div class='source-box'>{src['content']}</div>", unsafe_allow_html=True)
+            
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": answer,
+                "sources": sources
+            })
