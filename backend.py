@@ -6,7 +6,10 @@ FastAPI application implementing LCEL RAG pipeline with ChromaDB and Gemini.
 import os
 import shutil
 import tempfile
+import warnings
 from typing import List, Optional
+
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -23,7 +26,13 @@ from langchain_chroma import Chroma
 from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
-from langchain.retrievers.multi_query import MultiQueryRetriever
+try:
+    from langchain_classic.retrievers.multi_query import MultiQueryRetriever
+except ImportError:
+    try:
+        from langchain.retrievers.multi_query import MultiQueryRetriever
+    except ImportError:
+        from langchain_community.retrievers.multi_query import MultiQueryRetriever
 
 # Initialize FastAPI App
 app = FastAPI(
