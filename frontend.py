@@ -22,11 +22,15 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Initialize Streamlit Secrets if deployed on Streamlit Cloud
-if "GOOGLE_API_KEY" in st.secrets:
-    os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
-if "GEMINI_API_KEY" in st.secrets:
-    os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
+# Safely load Streamlit Secrets if available (on Streamlit Cloud)
+try:
+    if hasattr(st, "secrets"):
+        if "GOOGLE_API_KEY" in st.secrets:
+            os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
+        if "GEMINI_API_KEY" in st.secrets:
+            os.environ["GEMINI_API_KEY"] = st.secrets["GEMINI_API_KEY"]
+except Exception:
+    pass
 
 # Custom CSS for rich modern aesthetic
 st.markdown("""
